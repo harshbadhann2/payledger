@@ -33,6 +33,7 @@ On restart: read CLAUDE.md and this file, continue from the first unticked phase
 - [x] P5 Idempotency + README — CHECKPOINT B — 2026-10-01 — 41 tests
   - The key is claimed *first*, with `INSERT … ON CONFLICT DO NOTHING`, in the same transaction as the payment. A concurrent duplicate blocks on the primary key until the first request commits, then replays its stored response; if the first rolled back, the duplicate runs normally. Ten parallel requests with one key produce exactly one payment.
   - The hash is SHA-256 of `endpoint + canonical JSON of the validated request record`, so whitespace and field order don't matter but any value change → 409. The response is stored as a JSON string and replayed byte for byte, with header `Idempotent-Replayed: true`.
+  - README: every curl example was run against the live app (jar + compose Postgres) and the output pasted. `docker-compose.yml` now accepts `POSTGRES_PORT`, because this machine already runs a native Postgres on 5432.
   - Failures (4xx) are not stored: they roll back with the payment, so the key stays free and a retry after a top-up succeeds. `IdempotencyService.execute` is generic and will be reused by refunds in P6.
 - [ ] P6 Refunds, history, settlement (wait for "continue")
 - [ ] P7 Quality + CI

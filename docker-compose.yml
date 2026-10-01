@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: payledger
       POSTGRES_PASSWORD: payledger
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"   # set POSTGRES_PORT if 5432 is taken by a local Postgres
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
