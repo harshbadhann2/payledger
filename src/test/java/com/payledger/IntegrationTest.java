@@ -45,6 +45,17 @@ public abstract class IntegrationTest {
                 (String) login.getBody().get("accessToken"));
     }
 
+    protected void topUp(Account account, long amount) {
+        var response = post("/api/wallets/topup", Map.of("amount", amount), account.token());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
+    }
+
+    protected long balance(Account account) {
+        var response = get("/api/wallets/me", account.token());
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        return asLong(response.getBody().get("balance"));
+    }
+
     protected ResponseEntity<Map<String, Object>> post(String path, Object body, String token) {
         return exchange(HttpMethod.POST, path, body, headers(token));
     }

@@ -16,7 +16,10 @@ On restart: read CLAUDE.md and this file, continue from the first unticked phase
   - JWT uses Spring Security's resource server with NimbusJwtEncoder/Decoder (HS256), so there's no hand-written filter. JWT_SECRET has no default, and the app fails at startup if it is missing or under 32 bytes.
   - Duplicate emails are caught by the DB unique constraint and mapped to 409, not by a check-then-insert. A test fires 10 parallel sign-ups and gets exactly one 201. Emails are lowercased.
   - Unknown email and wrong password give the same 401 body, and both run BCrypt (unknown emails are checked against a dummy hash), so neither the response nor its timing reveals whether an account exists. Passwords are also capped at 72 bytes, BCrypt's input limit.
-- [ ] P3 Ledger
+- [x] P3 Ledger — 2026-10-01 — 26 tests
+  - `LedgerService` is `@Transactional(MANDATORY)`, so it fails rather than silently opening its own transaction. It validates sum = 0, rejects zero-amount legs and requires at least 2 legs, all before writing anything. `Math.addExact` guards the sum against overflow.
+  - `Payment` and `LedgerEntry` are `@Immutable` entities, so Hibernate never issues an UPDATE. Balance comes only from `LedgerEntryRepository.balanceOf`, a SQL `SUM`.
+  - Top-up takes no locks (see the NOTE comment in `WalletService`): a credit can't overdraw anyone, and locking SYSTEM would serialise every top-up. A test runs 60 random top-ups on 8 threads and checks every balance and that the global ledger sum is 0.
 - [ ] P4 Payments
 - [ ] P5 Idempotency + README — CHECKPOINT B
 - [ ] P6 Refunds, history, settlement (wait for "continue")
