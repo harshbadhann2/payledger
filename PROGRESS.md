@@ -12,7 +12,10 @@ On restart: read CLAUDE.md and this file, continue from the first unticked phase
   - The SYSTEM wallet is a seeded SYSTEM-role user, kept unique by a partial unique index. Its password hash is `!`, so it can never log in. Wallets keep a single NOT NULL user FK.
   - `payments.status` only allows COMPLETED, because a failed attempt rolls back and writes nothing. `idempotency_keys` uses PK(user_id, key) as its unique constraint.
   - Gotcha: `SYSTEM_USER` is a reserved SQL function in PG16 and can't be used as a CTE name.
-- [ ] P2 Auth
+- [x] P2 Auth — 2026-10-01 — 20 tests
+  - JWT uses Spring Security's resource server with NimbusJwtEncoder/Decoder (HS256), so there's no hand-written filter. JWT_SECRET has no default, and the app fails at startup if it is missing or under 32 bytes.
+  - Duplicate emails are caught by the DB unique constraint and mapped to 409, not by a check-then-insert. A test fires 10 parallel sign-ups and gets exactly one 201. Emails are lowercased.
+  - Unknown email and wrong password give the same 401 body, and both run BCrypt (unknown emails are checked against a dummy hash), so neither the response nor its timing reveals whether an account exists. Passwords are also capped at 72 bytes, BCrypt's input limit.
 - [ ] P3 Ledger
 - [ ] P4 Payments
 - [ ] P5 Idempotency + README — CHECKPOINT B

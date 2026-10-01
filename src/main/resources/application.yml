@@ -15,3 +15,9 @@ management:
     web:
       exposure:
         include: health
+
+payledger:
+  jwt:
+    # Required, at least 32 bytes. No default on purpose: the app refuses to start without it.
+    secret: ${JWT_SECRET}
+    ttl: PT1H
