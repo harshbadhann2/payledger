@@ -30,7 +30,10 @@ On restart: read CLAUDE.md and this file, continue from the first unticked phase
   - In plain words: several requests read the balance at the same moment, each saw "10,000, enough for 150", and each wrote its debit. None of them saw the others' debits, because those weren't committed yet when the balance was read. This is a check-then-act race, or lost update.
   - With the lock, the second request blocks on the wallet row until the first commits, then re-reads the balance including the first debit. The check and the write become one indivisible step per wallet. Result: exactly 66 succeed and 34 get 422, the balance ends at 100, and the global ledger sum is 0.
   - **Lock ordering demo:** locking payer-first instead of lower-id-first made `merchantsPayingEachOtherConcurrentlyDoNotDeadlock` fail. Postgres logged `ERROR: deadlock detected` because A→B held A and waited for B while B→A held B and waited for A. Ascending id order means everyone waits in the same direction, so no cycle can form.
-- [ ] P5 Idempotency + README — CHECKPOINT B
+- [x] P5 Idempotency + README — CHECKPOINT B — 2026-10-01 — 41 tests
+  - The key is claimed *first*, with `INSERT … ON CONFLICT DO NOTHING`, in the same transaction as the payment. A concurrent duplicate blocks on the primary key until the first request commits, then replays its stored response; if the first rolled back, the duplicate runs normally. Ten parallel requests with one key produce exactly one payment.
+  - The hash is SHA-256 of `endpoint + canonical JSON of the validated request record`, so whitespace and field order don't matter but any value change → 409. The response is stored as a JSON string and replayed byte for byte, with header `Idempotent-Replayed: true`.
+  - Failures (4xx) are not stored: they roll back with the payment, so the key stays free and a retry after a top-up succeeds. `IdempotencyService.execute` is generic and will be reused by refunds in P6.
 - [ ] P6 Refunds, history, settlement (wait for "continue")
 - [ ] P7 Quality + CI
 - [ ] P8 Deploy

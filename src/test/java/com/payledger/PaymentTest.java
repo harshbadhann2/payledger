@@ -29,8 +29,8 @@ class PaymentTest extends IntegrationTest {
         Account merchant = register("MERCHANT");
         topUp(customer, 10_000);
 
-        var response = post("/api/payments",
-                Map.of("merchantWalletId", merchant.walletId(), "amount", 2_500, "note", "Order #17"), customer.token());
+        var response = pay(customer,
+                Map.of("merchantWalletId", merchant.walletId(), "amount", 2_500, "note", "Order #17"), newKey());
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(response.getBody())
@@ -120,10 +120,12 @@ class PaymentTest extends IntegrationTest {
 
         assertThat(pay(customer, merchant.walletId(), 0).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(pay(customer, merchant.walletId(), -1).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/api/payments", Map.of("amount", 100), customer.token()).getStatusCode())
-                .isEqualTo(HttpStatus.BAD_REQUEST);
-        assertThat(post("/api/payments", Map.of("merchantWalletId", merchant.walletId(), "amount", 100, "note", "x".repeat(141)),
-                customer.token()).getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        var missingWallet = pay(customer, Map.of("amount", 100), newKey());
+        assertThat(missingWallet.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(missingWallet.getBody()).containsEntry("code", "VALIDATION_FAILED");
+        var longNote = pay(customer, Map.of("merchantWalletId", merchant.walletId(), "amount", 100, "note", "x".repeat(141)), newKey());
+        assertThat(longNote.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(longNote.getBody()).containsEntry("code", "VALIDATION_FAILED");
         assertThat(pay(new Account(0, 0, "", null), merchant.walletId(), 100).getStatusCode())
                 .isEqualTo(HttpStatus.UNAUTHORIZED);
     }
@@ -190,6 +192,10 @@ class PaymentTest extends IntegrationTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    private static String newKey() {
+        return java.util.UUID.randomUUID().toString();
     }
 
     private static long count(List<HttpStatusCode> statuses, HttpStatus status) {

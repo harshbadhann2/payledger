@@ -6,8 +6,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -24,6 +26,19 @@ public class GlobalExceptionHandler {
         e.getBindingResult().getGlobalErrors().forEach(g -> fields.putIfAbsent(g.getObjectName(), g.getDefaultMessage()));
         return ResponseEntity.badRequest()
                 .body(new ErrorResponse("VALIDATION_FAILED", "Request validation failed", fields));
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    ResponseEntity<ErrorResponse> handleMissingHeader(MissingRequestHeaderException e) {
+        return ResponseEntity.badRequest().body(new ErrorResponse("MISSING_HEADER",
+                "Required header '" + e.getHeaderName() + "' is missing", Map.of("header", e.getHeaderName())));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        String expected = e.getRequiredType() != null ? e.getRequiredType().getSimpleName() : "a valid value";
+        return ResponseEntity.badRequest().body(new ErrorResponse("INVALID_PARAMETER",
+                "'" + e.getName() + "' must be " + expected, Map.of("parameter", e.getName())));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)

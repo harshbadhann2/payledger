@@ -7,7 +7,9 @@ import com.payledger.dto.PaymentDtos.PaymentRequest;
 import com.payledger.dto.PaymentDtos.PaymentResponse;
 import com.payledger.error.ApiException;
 import com.payledger.repository.WalletRepository;
+import com.payledger.service.IdempotencyService.IdempotentResponse;
 import java.util.Map;
+import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,19 +20,28 @@ public class PaymentService {
     private final WalletRepository wallets;
     private final WalletService walletService;
     private final LedgerService ledger;
+    private final IdempotencyService idempotency;
 
-    public PaymentService(WalletRepository wallets, WalletService walletService, LedgerService ledger) {
+    public PaymentService(WalletRepository wallets, WalletService walletService, LedgerService ledger,
+                          IdempotencyService idempotency) {
         this.wallets = wallets;
         this.walletService = walletService;
         this.ledger = ledger;
+        this.idempotency = idempotency;
     }
 
     /**
      * Pays a merchant from the caller's wallet in one transaction:
-     * validate -> lock both wallets (ascending id) -> check balance under the lock -> write payment + 2 entries.
+     * claim idempotency key -> validate -> lock both wallets (ascending id) -> check balance under the lock
+     * -> write payment + 2 entries -> store the response against the key.
      */
     @Transactional
-    public PaymentResponse pay(long userId, PaymentRequest request) {
+    public IdempotentResponse pay(long userId, UUID idempotencyKey, PaymentRequest request) {
+        return idempotency.execute(userId, idempotencyKey, "POST /api/payments", request, HttpStatus.CREATED,
+                () -> payOnce(userId, request));
+    }
+
+    private PaymentResponse payOnce(long userId, PaymentRequest request) {
         long payerId = walletService.walletOf(userId).getId();
         long payeeId = request.merchantWalletId();
         long amount = request.amount();

@@ -56,8 +56,17 @@ public abstract class IntegrationTest {
         return asLong(response.getBody().get("balance"));
     }
 
+    /** Pays with a fresh Idempotency-Key, i.e. a new logical payment. */
     protected ResponseEntity<Map<String, Object>> pay(Account payer, long merchantWalletId, long amount) {
-        return post("/api/payments", Map.of("merchantWalletId", merchantWalletId, "amount", amount), payer.token());
+        return pay(payer, Map.of("merchantWalletId", merchantWalletId, "amount", amount), UUID.randomUUID().toString());
+    }
+
+    protected ResponseEntity<Map<String, Object>> pay(Account payer, Object body, String idempotencyKey) {
+        HttpHeaders headers = headers(payer.token());
+        if (idempotencyKey != null) {
+            headers.set("Idempotency-Key", idempotencyKey);
+        }
+        return exchange(HttpMethod.POST, "/api/payments", body, headers);
     }
 
     protected ResponseEntity<Map<String, Object>> post(String path, Object body, String token) {
