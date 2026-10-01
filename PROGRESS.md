@@ -20,7 +20,16 @@ On restart: read CLAUDE.md and this file, continue from the first unticked phase
   - `LedgerService` is `@Transactional(MANDATORY)`, so it fails rather than silently opening its own transaction. It validates sum = 0, rejects zero-amount legs and requires at least 2 legs, all before writing anything. `Math.addExact` guards the sum against overflow.
   - `Payment` and `LedgerEntry` are `@Immutable` entities, so Hibernate never issues an UPDATE. Balance comes only from `LedgerEntryRepository.balanceOf`, a SQL `SUM`.
   - Top-up takes no locks (see the NOTE comment in `WalletService`): a credit can't overdraw anyone, and locking SYSTEM would serialise every top-up. A test runs 60 random top-ups on 8 threads and checks every balance and that the global ledger sum is 0.
-- [ ] P4 Payments
+- [x] P4 Payments — 2026-10-01 — 35 tests
+  - The lock is a native `SELECT * FROM wallets WHERE id = ? FOR UPDATE`, taken on the lower wallet id first and then the higher. The balance is read *after* the locks are held, so under READ COMMITTED the SUM sees every debit that committed while we waited.
+  - Payee checks come before locking: self-pay → 400 SELF_PAYMENT, non-merchant → 400 INVALID_PAYEE, unknown wallet → 404. Invalid requests never take a lock.
+  - Payers can be any role, including a merchant paying a merchant, which is how the deadlock test pays in both directions.
+
+  **Race condition demo (lock removed, then restored; never committed)**
+  - **Without `FOR UPDATE`**, `concurrentPaymentsNeverOverdraw` failed with `expected: 66L but was: 69L`. That's 69 × 150 = 10,350 paise spent from a 10,000-paise wallet, a final balance of **−350**.
+  - In plain words: several requests read the balance at the same moment, each saw "10,000, enough for 150", and each wrote its debit. None of them saw the others' debits, because those weren't committed yet when the balance was read. This is a check-then-act race, or lost update.
+  - With the lock, the second request blocks on the wallet row until the first commits, then re-reads the balance including the first debit. The check and the write become one indivisible step per wallet. Result: exactly 66 succeed and 34 get 422, the balance ends at 100, and the global ledger sum is 0.
+  - **Lock ordering demo:** locking payer-first instead of lower-id-first made `merchantsPayingEachOtherConcurrentlyDoNotDeadlock` fail. Postgres logged `ERROR: deadlock detected` because A→B held A and waited for B while B→A held B and waited for A. Ascending id order means everyone waits in the same direction, so no cycle can form.
 - [ ] P5 Idempotency + README — CHECKPOINT B
 - [ ] P6 Refunds, history, settlement (wait for "continue")
 - [ ] P7 Quality + CI

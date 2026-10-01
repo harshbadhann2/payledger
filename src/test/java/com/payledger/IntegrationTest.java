@@ -56,6 +56,10 @@ public abstract class IntegrationTest {
         return asLong(response.getBody().get("balance"));
     }
 
+    protected ResponseEntity<Map<String, Object>> pay(Account payer, long merchantWalletId, long amount) {
+        return post("/api/payments", Map.of("merchantWalletId", merchantWalletId, "amount", amount), payer.token());
+    }
+
     protected ResponseEntity<Map<String, Object>> post(String path, Object body, String token) {
         return exchange(HttpMethod.POST, path, body, headers(token));
     }
