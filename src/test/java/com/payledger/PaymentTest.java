@@ -2,6 +2,9 @@ package com.payledger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.payledger.domain.Payment;
+import com.payledger.domain.PaymentType;
+import com.payledger.service.LedgerService;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -17,11 +20,18 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.transaction.support.TransactionTemplate;
 
 class PaymentTest extends IntegrationTest {
 
     @Autowired
     JdbcTemplate jdbc;
+
+    @Autowired
+    LedgerService ledger;
+
+    @Autowired
+    TransactionTemplate tx;
 
     @Test
     void happyPathMovesMoneyFromCustomerToMerchant() {
@@ -146,6 +156,37 @@ class PaymentTest extends IntegrationTest {
         assertThat(count(statuses, HttpStatus.UNPROCESSABLE_ENTITY)).isEqualTo(34);
         assertThat(balance(customer)).isEqualTo(100);
         assertThat(balance(merchant)).isEqualTo(9_900);
+        assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM ledger_entries", Long.class)).isZero();
+    }
+
+    /**
+     * The same scenario as {@link #concurrentPaymentsNeverOverdraw()}, but each payment runs PaymentService's
+     * read-check-write WITHOUT the {@code SELECT ... FOR UPDATE} row lock. This path exists only in this test;
+     * the running application has no way to skip the lock. Concurrent payers read the same balance, all pass the
+     * check, and the wallet overdraws. The ledger still sums to zero: the DB triggers enforce double entry, but
+     * only the lock prevents overdraft.
+     */
+    @Test
+    void withoutTheRowLockConcurrentPaymentsOverdraw() throws Exception {
+        Account customer = register("CUSTOMER");
+        Account merchant = register("MERCHANT");
+        topUp(customer, 10_000);
+
+        List<Boolean> paid = runConcurrently(100, i -> () -> tx.execute(status -> {
+            // PaymentService.payOnce minus lockInOrder(...): check the balance, then debit.
+            if (ledger.balanceOf(customer.walletId()) < 150) {
+                return false;
+            }
+            ledger.transfer(new Payment(customer.walletId(), merchant.walletId(), 150, PaymentType.PAYMENT, null, null));
+            return true;
+        }));
+
+        long successes = paid.stream().filter(b -> b).count();
+        long finalBalance = balance(customer);
+        System.out.printf("UNLOCKED RACE: successes=%d rejections=%d finalBalance=%d paise%n",
+                successes, 100 - successes, finalBalance);
+        assertThat(successes).isGreaterThan(66);
+        assertThat(finalBalance).isNegative().isEqualTo(10_000 - 150 * successes);
         assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM ledger_entries", Long.class)).isZero();
     }
 
