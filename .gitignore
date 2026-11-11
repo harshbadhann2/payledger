@@ -33,4 +33,9 @@ build/
 
 ### Local ###
 .env
+.env.*
+*.local.yml
+application-local*.yml
+application-local/
 .DS_Store
+*.log
