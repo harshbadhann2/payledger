@@ -43,7 +43,7 @@ A payment is check-then-act: read the balance, debit if it is high enough. Witho
 2. Always lock the **lower wallet id first** (`lockInOrder`, lines 76-79). If A→B and B→A each locked the payer first, each could hold one row and wait for the other: a deadlock. One global order makes that cycle impossible.
 3. Read the balance only **after** the locks are held (line 62). Under READ COMMITTED that read sees every debit committed while this request waited.
 
-**Proof** (`src/test/java/com/payledger/PaymentTest.java`):
+**Tests** (`src/test/java/com/payledger/PaymentTest.java`):
 
 | Test | Scenario | Asserts |
 |---|---|---|
@@ -51,7 +51,7 @@ A payment is check-then-act: read the balance, debit if it is high enough. Witho
 | `withoutTheRowLockConcurrentPaymentsOverdraw` | Same 100 × 150 against 10,000, but the same check-then-debit runs **without** `FOR UPDATE` (a test-only transaction calling `LedgerService`; the app has no way to skip the lock) | **more than 66 successes and a negative balance**, while the ledger still sums to 0 |
 | `merchantsPayingEachOtherConcurrentlyDoNotDeadlock` | 50 A→B and 50 B→A at once | all 100 return 201, balances unchanged |
 
-Recorded results of the unlocked test in three full-suite runs on a local machine: **70 successes / −500 paise, 70 / −500, 74 / −1,100**. The number varies because it is a race; the test only requires an overdraft, and it reproduced on every run with no artificial delay. The DB triggers did not stop it: double entry keeps the books balanced, but only the row lock prevents overdraft.
+Observed locally (not a CI result), three full-suite runs of the unlocked test gave 70 successes / −500 paise, 70 / −500 and 74 / −1,100. The number varies because it is a race; the test only requires an overdraft, and it reproduced on every run with no artificial delay. The DB triggers did not stop it: double entry keeps the books balanced, but only the row lock prevents overdraft.
 
 ## Idempotency
 
