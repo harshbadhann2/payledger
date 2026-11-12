@@ -10,6 +10,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -160,33 +161,36 @@ class PaymentTest extends IntegrationTest {
     }
 
     /**
-     * The same scenario as {@link #concurrentPaymentsNeverOverdraw()}, but each payment runs PaymentService's
-     * read-check-write WITHOUT the {@code SELECT ... FOR UPDATE} row lock. This path exists only in this test;
-     * the running application has no way to skip the lock. Concurrent payers read the same balance, all pass the
-     * check, and the wallet overdraws. The ledger still sums to zero: the DB triggers enforce double entry, but
-     * only the lock prevents overdraft.
+     * PaymentService's read-check-write WITHOUT the {@code SELECT ... FOR UPDATE} row lock, with the race forced
+     * rather than hoped for: two payments of 150 against a 150-paise wallet both read the balance, wait for each
+     * other at a barrier, then both debit. Both pass the check and the wallet ends at exactly -150, on every run and
+     * on any machine. This path exists only in this test; the running application has no way to skip the lock.
+     * The ledger still sums to zero: the DB triggers enforce double entry, but only the lock prevents overdraft.
      */
     @Test
     void withoutTheRowLockConcurrentPaymentsOverdraw() throws Exception {
         Account customer = register("CUSTOMER");
         Account merchant = register("MERCHANT");
-        topUp(customer, 10_000);
+        topUp(customer, 150);
+        CyclicBarrier bothHaveRead = new CyclicBarrier(2);
 
-        List<Boolean> paid = runConcurrently(100, i -> () -> tx.execute(status -> {
+        List<Boolean> paid = runConcurrently(2, i -> () -> tx.execute(status -> {
             // PaymentService.payOnce minus lockInOrder(...): check the balance, then debit.
-            if (ledger.balanceOf(customer.walletId()) < 150) {
+            boolean enough = ledger.balanceOf(customer.walletId()) >= 150;
+            try {
+                bothHaveRead.await(10, TimeUnit.SECONDS); // neither writes until both have read
+            } catch (Exception e) {
+                throw new IllegalStateException(e);
+            }
+            if (!enough) {
                 return false;
             }
             ledger.transfer(new Payment(customer.walletId(), merchant.walletId(), 150, PaymentType.PAYMENT, null, null));
             return true;
         }));
 
-        long successes = paid.stream().filter(b -> b).count();
-        long finalBalance = balance(customer);
-        System.out.printf("UNLOCKED RACE: successes=%d rejections=%d finalBalance=%d paise%n",
-                successes, 100 - successes, finalBalance);
-        assertThat(successes).isGreaterThan(66);
-        assertThat(finalBalance).isNegative().isEqualTo(10_000 - 150 * successes);
+        assertThat(paid).containsExactly(true, true);
+        assertThat(balance(customer)).isEqualTo(-150);
         assertThat(jdbc.queryForObject("SELECT SUM(amount) FROM ledger_entries", Long.class)).isZero();
     }
 

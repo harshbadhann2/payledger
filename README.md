@@ -48,10 +48,10 @@ A payment is check-then-act: read the balance, debit if it is high enough. Witho
 | Test | Scenario | Asserts |
 |---|---|---|
 | `concurrentPaymentsNeverOverdraw` | Top up 10,000 paise; 100 threads released by one latch each pay 150 paise over HTTP | exactly **66 × 201 and 34 × 422**, final balance 100, merchant 9,900, ledger sum 0 |
-| `withoutTheRowLockConcurrentPaymentsOverdraw` | Same 100 × 150 against 10,000, but the same check-then-debit runs **without** `FOR UPDATE` (a test-only transaction calling `LedgerService`; the app has no way to skip the lock) | **more than 66 successes and a negative balance**, while the ledger still sums to 0 |
+| `withoutTheRowLockConcurrentPaymentsOverdraw` | The same check-then-debit **without** `FOR UPDATE` (a test-only transaction calling `LedgerService`; the app has no way to skip the lock). Two payments of 150 against a 150-paise wallet both read the balance, meet at a barrier, then both debit, so the race happens on every run | **both succeed and the balance ends at exactly −150**, while the ledger still sums to 0 |
 | `merchantsPayingEachOtherConcurrentlyDoNotDeadlock` | 50 A→B and 50 B→A at once | all 100 return 201, balances unchanged |
 
-Observed locally (not a CI result), three full-suite runs of the unlocked test gave 70 successes / −500 paise, 70 / −500 and 74 / −1,100. The number varies because it is a race; the test only requires an overdraft, and it reproduced on every run with no artificial delay. The DB triggers did not stop it: double entry keeps the books balanced, but only the row lock prevents overdraft.
+The barrier forces the interleaving that a real race produces only sometimes, so the test is deterministic on any machine. The DB triggers do not stop it: double entry keeps the books balanced, but only the row lock prevents overdraft.
 
 ## Idempotency
 
